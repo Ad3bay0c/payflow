@@ -1,0 +1,133 @@
+version: "3.9"
+
+networks:
+  payflow:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  zookeeper_data:
+  kafka_data:
+
+services:
+
+  postgres:
+    image: postgres:16.3-alpine
+    container_name: payflow_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: payflow
+      POSTGRES_PASSWORD: payflow_secret
+      POSTGRES_DB: payflow
+    ports:
+      - "5438:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    networks:
+      - payflow
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U payflow -d payflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pgbouncer:
+    image: edoburu/pgbouncer:1.22.0
+    container_name: payflow_pgbouncer
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: "postgres://payflow:payflow_secret@postgres:5432/payflow"
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 1000
+      DEFAULT_POOL_SIZE: 20
+      AUTH_TYPE: scram-sha-256
+    ports:
+      - "5433:5432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - payflow
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: payflow_redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - payflow
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    container_name: payflow_zookeeper
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+    networks:
+      - payflow
+    healthcheck:
+      test: [ "CMD", "bash", "-c", "echo ruok | nc -w 1 127.0.0.1 2181" ]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: payflow_kafka
+    restart: unless-stopped
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: 168
+    ports:
+      - "9092:9092"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    networks:
+      - payflow
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: payflow_kafka_ui
+    restart: unless-stopped
+    depends_on:
+      - kafka
+    environment:
+      KAFKA_CLUSTERS_0_NAME: payflow-local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+    ports:
+      - "8090:8080"
+    networks:
+      - payflow
