@@ -1,0 +1,9 @@
+go 1.25.1
+
+use (
+	./services/auth
+	./services/fraud
+	./services/ledger
+	./services/notification
+	./services/payment
+)
