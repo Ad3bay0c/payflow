@@ -1,6 +1,7 @@
 go 1.25.1
 
 use (
+	./pkg
 	./services/auth
 	./services/fraud
 	./services/ledger
