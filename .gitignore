@@ -25,3 +25,5 @@ bin/
 # secrets
 secrets/
 *.pem
+
+*.http
