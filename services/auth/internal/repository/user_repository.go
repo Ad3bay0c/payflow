@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -38,6 +39,7 @@ type CreateAuditLogParams struct {
 
 type postgresUserRepository struct {
 	queries *db.Queries
+	pool    *pgxpool.Pool
 }
 
 // NewUserRepository returns a PostgreSQL-backed UserRepository.
@@ -45,19 +47,21 @@ type postgresUserRepository struct {
 func NewUserRepository(pool *pgxpool.Pool) UserRepository {
 	return &postgresUserRepository{
 		queries: db.New(pool),
+		pool:    pool,
 	}
 }
 
 // Create inserts a new user and their credentials atomically.
 func (r *postgresUserRepository) Create(ctx context.Context, user *domain.User) error {
-	// sqlc does not yet support multi-statement transactions natively,
-	// so we use the pool directly for the transaction and call each
-	// generated query inside it.
-	pool := r.queries.WithTx
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("beginning transaction: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
 
-	// We need raw pool access for transactions — store it on the struct
-	// For now we use the queries directly since sqlc generates WithTx support
-	err := r.queries.CreateUser(ctx, db.CreateUserParams{
+	qtx := r.queries.WithTx(tx)
+
+	err = qtx.CreateUser(ctx, db.CreateUserParams{
 		ID:          pgconv.ToPgUUID(user.ID),
 		PhoneNumber: user.PhoneNumber,
 		Email:       pgconv.ToPgTextPtr(user.Email),
@@ -72,9 +76,7 @@ func (r *postgresUserRepository) Create(ctx context.Context, user *domain.User) 
 		return fmt.Errorf("inserting user: %w", err)
 	}
 
-	_ = pool // used below in CreateUserCredentials
-
-	err = r.queries.CreateUserCredentials(ctx, db.CreateUserCredentialsParams{
+	err = qtx.CreateUserCredentials(ctx, db.CreateUserCredentialsParams{
 		UserID:       pgconv.ToPgUUID(user.ID),
 		PasswordHash: user.PasswordHash,
 		CreatedAt:    pgconv.ToPgTimestamp(user.CreatedAt),
@@ -84,7 +86,7 @@ func (r *postgresUserRepository) Create(ctx context.Context, user *domain.User) 
 		return fmt.Errorf("inserting credentials: %w", err)
 	}
 
-	return nil
+	return tx.Commit(ctx)
 }
 
 // FindByID retrieves a user by UUID. Returns nil, nil if not found.
