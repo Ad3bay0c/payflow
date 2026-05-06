@@ -8,6 +8,8 @@ import (
 	"github.com/google/uuid"
 )
 
+const RefreshTokenTTL = 720 * time.Hour // 30 days
+
 type KYCStatus string
 
 const (
@@ -57,4 +59,28 @@ type Claims struct {
 	Tier      Tier      `json:"tier"`
 	TokenType string    `json:"token_type"` // "access" or "refresh"
 	JTI       string    `json:"jti"`        // JWT ID — used for revocation
+}
+
+type UserResponse struct {
+	ID          string  `json:"id"`
+	PhoneNumber string  `json:"phone_number"`
+	FullName    string  `json:"full_name"`
+	Email       *string `json:"email,omitempty"`
+	KYCStatus   string  `json:"kyc_status"`
+	Tier        int     `json:"tier"`
+	IsActive    bool    `json:"is_active"`
+	CreatedAt   string  `json:"created_at"`
+}
+
+func (u *User) ToUserResponse() UserResponse {
+	return UserResponse{
+		ID:          u.ID.String(),
+		PhoneNumber: u.PhoneNumber,
+		FullName:    u.FullName,
+		Email:       u.Email,
+		KYCStatus:   string(u.KYCStatus),
+		Tier:        int(u.Tier),
+		IsActive:    u.IsActive,
+		CreatedAt:   u.CreatedAt.Format("2006-01-02T15:04:05Z"),
+	}
 }
