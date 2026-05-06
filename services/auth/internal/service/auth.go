@@ -132,10 +132,19 @@ func (s *authService) RequestOTP(ctx context.Context, phone string) error {
 
 	// Store in Redis with TTL
 	otpKey := prefixOTPCode + phone
-	if err := s.redis.Set(ctx, otpKey, code, otpTTL).Err(); err != nil {
+	set, err := s.redis.SetNX(ctx, otpKey, code, otpTTL).Result()
+	if err != nil {
 		return fmt.Errorf("storing otp: %w", err)
 	}
-
+	if !set {
+		code, err = s.redis.Get(ctx, otpKey).Result()
+		if err != nil {
+			return fmt.Errorf("retrieving existing otp: %w", err)
+		}
+		s.logger.Info("reusing existing OTP",
+			zap.String("phone", maskPhone(phone)),
+		)
+	}
 	// Send the OTP via SMS
 	message := fmt.Sprintf("Your PayFlow verification code is %s. Valid for 10 minutes. Do not share this code.", code)
 	if err := s.smsSender.Send(ctx, phone, message); err != nil {
