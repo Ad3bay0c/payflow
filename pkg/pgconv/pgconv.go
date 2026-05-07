@@ -21,7 +21,7 @@ func FromPgUUID(id pgtype.UUID) uuid.UUID {
 	return uuid.UUID(id.Bytes)
 }
 
-func ToPgUUIDPtr(id *uuid.UUID) pgtype.UUID {
+func ToNullPgUUID(id *uuid.UUID) pgtype.UUID {
 	if id == nil {
 		return pgtype.UUID{}
 	}

@@ -33,6 +33,12 @@ type PaymentRepository interface {
 	ListTransactionsByWallet(ctx context.Context, walletID uuid.UUID, limit, offset int32) ([]*domain.Transaction, int64, error)
 
 	BeginTx(ctx context.Context) (pgx.Tx, error)
+
+	GetTierLimit(ctx context.Context, tier int16) (*domain.TierLimit, error)
+	GetDailyTransferTotal(ctx context.Context, walletID uuid.UUID) (int64, error)
+	UpdateDailyTransferTotal(ctx context.Context, tx pgx.Tx, walletID uuid.UUID, amount int64) error
+
+	GetFeeTiers(ctx context.Context) ([]domain.FeeTier, error)
 }
 
 type CreateTransactionParams struct {
@@ -298,4 +304,51 @@ func toDomainTransaction(row gendb.Transaction) *domain.Transaction {
 	}
 
 	return txn
+}
+
+func (r *postgresPaymentRepository) GetTierLimit(ctx context.Context, tier int16) (*domain.TierLimit, error) {
+	row, err := r.queries.GetTierLimit(ctx, tier)
+	if err != nil {
+		return nil, fmt.Errorf("getting tier limit: %w", err)
+	}
+	return &domain.TierLimit{
+		Tier:            row.Tier,
+		MaxTransferKobo: row.MaxTransferKobo,
+		DailyLimitKobo:  row.DailyLimitKobo,
+		Description:     row.Description.String,
+	}, nil
+}
+
+func (r *postgresPaymentRepository) GetDailyTransferTotal(ctx context.Context, walletID uuid.UUID) (int64, error) {
+	total, err := r.queries.GetDailyTransferTotal(ctx, pgconv.ToPgUUID(walletID))
+	if err != nil {
+		return 0, fmt.Errorf("getting daily total: %w", err)
+	}
+	return total, nil
+}
+
+func (r *postgresPaymentRepository) UpdateDailyTransferTotal(ctx context.Context, tx pgx.Tx, walletID uuid.UUID, amount int64) error {
+	qtx := r.queries.WithTx(tx)
+	return qtx.UpsertDailyTransferSummary(ctx, gendb.UpsertDailyTransferSummaryParams{
+		WalletID:  pgconv.ToPgUUID(walletID),
+		TotalKobo: amount,
+	})
+}
+
+func (r *postgresPaymentRepository) GetFeeTiers(ctx context.Context) ([]domain.FeeTier, error) {
+	rows, err := r.queries.GetFeeTiers(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("getting fee tiers: %w", err)
+	}
+
+	tiers := make([]domain.FeeTier, len(rows))
+	for i, row := range rows {
+		tiers[i] = domain.FeeTier{
+			ID:            row.ID,
+			MaxAmountKobo: row.MaxAmountKobo,
+			FeeKobo:       row.FeeKobo,
+			Description:   row.Description.String,
+		}
+	}
+	return tiers, nil
 }

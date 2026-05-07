@@ -91,8 +91,9 @@ type TransferRequest struct {
 	IdempotencyKey   string
 	SenderWalletID   uuid.UUID
 	ReceiverWalletID uuid.UUID
-	Amount           int64 // in kobo
+	Amount           int64
 	Description      string
+	SenderTier       int16 // from JWT claims
 }
 
 // FundWalletRequest is the input for topping up a wallet.
