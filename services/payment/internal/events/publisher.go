@@ -40,9 +40,10 @@ func NewKafkaPublisher(brokers []string) Publisher {
 			// RequiredAcks: all replicas must acknowledge before we consider
 			// the message written. In production with RF=3 this means
 			// the message survives broker failures.
-			RequiredAcks: kafka.RequireAll,
-			Async:        false, // synchronous — we know the event was written
-			WriteTimeout: 10 * time.Second,
+			RequiredAcks:           kafka.RequireOne,
+			Async:                  false, // synchronous — we know the event was written
+			WriteTimeout:           10 * time.Second,
+			AllowAutoTopicCreation: true,
 		},
 	}
 }
