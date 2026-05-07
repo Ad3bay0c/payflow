@@ -11,6 +11,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+
+	"github.com/Ad3bay0c/payflow/auth/internal/domain"
 )
 
 // TraceID injects a unique trace_id into every request context.
@@ -50,7 +52,7 @@ func (h *AuthHandler) RequireAuth() gin.HandlerFunc {
 			return
 		}
 
-		claims, err := h.jwtSvc.ValidateToken(c.Request.Context(), parts[1], "access")
+		claims, err := h.jwtSvc.ValidateToken(c.Request.Context(), parts[1], domain.TokenTypeAccess)
 		if err != nil {
 			fail(c, http.StatusUnauthorized, "UNAUTHORISED", "invalid or expired token")
 			c.Abort()

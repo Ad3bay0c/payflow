@@ -28,9 +28,6 @@ import (
 )
 
 const (
-	tokenTypeAccess  = "access"
-	tokenTypeRefresh = "refresh"
-
 	// Redis key prefixes
 	prefixBlockedToken = "payflow:auth:blocked_token:"
 	prefixUserRevoked  = "payflow:auth:user_revoked:"
@@ -110,7 +107,7 @@ func (s *jwtService) GenerateTokenPair(ctx context.Context, user *domain.User) (
 		Phone:     user.PhoneNumber,
 		KYCStatus: user.KYCStatus,
 		Tier:      user.Tier,
-		TokenType: tokenTypeAccess,
+		TokenType: domain.TokenTypeAccess,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("signing access token: %w", err)
@@ -127,7 +124,7 @@ func (s *jwtService) GenerateTokenPair(ctx context.Context, user *domain.User) (
 		Phone:     user.PhoneNumber,
 		KYCStatus: user.KYCStatus,
 		Tier:      user.Tier,
-		TokenType: tokenTypeRefresh,
+		TokenType: domain.TokenTypeRefresh,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("signing refresh token: %w", err)
