@@ -28,3 +28,27 @@ CREATE TABLE transactions (
       created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE tier_limits (
+         tier               SMALLINT    PRIMARY KEY CHECK (tier IN (1, 2, 3)),
+         max_transfer_kobo  BIGINT      NOT NULL,  -- max single transfer
+         daily_limit_kobo   BIGINT      NOT NULL,  -- max total transfers per day
+         description        TEXT,
+         updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE daily_transfer_summary (
+        wallet_id   UUID        NOT NULL REFERENCES wallets(id),
+        date        DATE        NOT NULL DEFAULT CURRENT_DATE,
+        total_kobo  BIGINT      NOT NULL DEFAULT 0,
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (wallet_id, date)
+);
+
+CREATE TABLE fee_tiers (
+       id               SMALLINT    PRIMARY KEY,
+       max_amount_kobo  BIGINT      NOT NULL DEFAULT 0,
+       fee_kobo         BIGINT      NOT NULL,
+       description      TEXT,
+       is_active        BOOLEAN     NOT NULL DEFAULT true,
+       updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
