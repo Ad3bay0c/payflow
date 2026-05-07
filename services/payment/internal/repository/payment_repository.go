@@ -4,7 +4,9 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -21,15 +23,16 @@ import (
 type PaymentRepository interface {
 	CreateWallet(ctx context.Context, userID uuid.UUID) (*domain.Wallet, error)
 	GetWalletByID(ctx context.Context, id uuid.UUID) (*domain.Wallet, error)
+	GetWalletByIDAndUserID(ctx context.Context, id, userID uuid.UUID) (*domain.Wallet, error)
 	GetWalletByUserID(ctx context.Context, userID uuid.UUID) (*domain.Wallet, error)
 	GetWalletByIDForUpdate(ctx context.Context, tx pgx.Tx, id uuid.UUID) (*domain.Wallet, error)
 	UpdateWalletBalance(ctx context.Context, tx pgx.Tx, walletID uuid.UUID, newBalance, version int64) (*domain.Wallet, error)
-	FundWallet(ctx context.Context, walletID uuid.UUID, amount int64) (*domain.Wallet, error)
+	FundWallet(ctx context.Context, tx pgx.Tx, walletID uuid.UUID, amount int64) (*domain.Wallet, error)
 
 	CreateTransaction(ctx context.Context, tx pgx.Tx, params CreateTransactionParams) (*domain.Transaction, error)
 	GetTransactionByID(ctx context.Context, id uuid.UUID) (*domain.Transaction, error)
 	GetTransactionByIdempotencyKey(ctx context.Context, key string) (*domain.Transaction, error)
-	UpdateTransactionStatus(ctx context.Context, id uuid.UUID, status domain.TransactionStatus, completedAt, failedAt *time.Time) (*domain.Transaction, error)
+	UpdateTransactionStatus(ctx context.Context, tx pgx.Tx, id uuid.UUID, status domain.TransactionStatus, completedAt, failedAt *time.Time) (*domain.Transaction, error)
 	ListTransactionsByWallet(ctx context.Context, walletID uuid.UUID, limit, offset int32) ([]*domain.Transaction, int64, error)
 
 	BeginTx(ctx context.Context) (pgx.Tx, error)
@@ -92,6 +95,17 @@ func (r *postgresPaymentRepository) GetWalletByID(ctx context.Context, id uuid.U
 	return toDomainWallet(row), nil
 }
 
+func (r *postgresPaymentRepository) GetWalletByIDAndUserID(ctx context.Context, id, userID uuid.UUID) (*domain.Wallet, error) {
+	row, err := r.queries.GetWalletByIDAndUserID(ctx, gendb.GetWalletByIDAndUserIDParams{
+		ID:     pgconv.ToPgUUID(id),
+		UserID: pgconv.ToPgUUID(userID),
+	})
+	if err != nil {
+		return nil, nil // not found
+	}
+	return toDomainWallet(row), nil
+}
+
 func (r *postgresPaymentRepository) GetWalletByUserID(ctx context.Context, userID uuid.UUID) (*domain.Wallet, error) {
 	row, err := r.queries.GetWalletByUserID(ctx, pgconv.ToPgUUID(userID))
 	if err != nil {
@@ -135,8 +149,20 @@ func (r *postgresPaymentRepository) UpdateWalletBalance(
 	return toDomainWallet(row), nil
 }
 
-func (r *postgresPaymentRepository) FundWallet(ctx context.Context, walletID uuid.UUID, amount int64) (*domain.Wallet, error) {
-	row, err := r.queries.FundWallet(ctx, gendb.FundWalletParams{
+func (r *postgresPaymentRepository) FundWallet(
+	ctx context.Context,
+	tx pgx.Tx,
+	walletID uuid.UUID,
+	amount int64,
+) (*domain.Wallet, error) {
+	var qtx *gendb.Queries
+	if tx != nil {
+		qtx = r.queries.WithTx(tx)
+	} else {
+		qtx = r.queries
+	}
+
+	row, err := qtx.FundWallet(ctx, gendb.FundWalletParams{
 		ID:        pgconv.ToPgUUID(walletID),
 		Balance:   amount,
 		UpdatedAt: pgconv.ToPgTimestamp(time.Now().UTC()),
@@ -205,12 +231,20 @@ func (r *postgresPaymentRepository) GetTransactionByIdempotencyKey(ctx context.C
 
 func (r *postgresPaymentRepository) UpdateTransactionStatus(
 	ctx context.Context,
+	tx pgx.Tx,
 	id uuid.UUID,
 	status domain.TransactionStatus,
 	completedAt *time.Time,
 	failedAt *time.Time,
 ) (*domain.Transaction, error) {
-	row, err := r.queries.UpdateTransactionStatus(ctx, gendb.UpdateTransactionStatusParams{
+	var qtx *gendb.Queries
+	if tx != nil {
+		qtx = r.queries.WithTx(tx)
+	} else {
+		qtx = r.queries
+	}
+
+	row, err := qtx.UpdateTransactionStatus(ctx, gendb.UpdateTransactionStatusParams{
 		ID:          pgconv.ToPgUUID(id),
 		Status:      string(status),
 		CompletedAt: pgconv.ToPgTimestampPtr(completedAt),
@@ -321,7 +355,7 @@ func (r *postgresPaymentRepository) GetTierLimit(ctx context.Context, tier int16
 
 func (r *postgresPaymentRepository) GetDailyTransferTotal(ctx context.Context, walletID uuid.UUID) (int64, error) {
 	total, err := r.queries.GetDailyTransferTotal(ctx, pgconv.ToPgUUID(walletID))
-	if err != nil {
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return 0, fmt.Errorf("getting daily total: %w", err)
 	}
 	return total, nil

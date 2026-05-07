@@ -20,7 +20,7 @@ type PaymentService interface {
 	CreateWallet(ctx context.Context, userID uuid.UUID) (*domain.Wallet, error)
 	GetWallet(ctx context.Context, walletID uuid.UUID) (*domain.Wallet, error)
 	GetWalletByUserID(ctx context.Context, userID uuid.UUID) (*domain.Wallet, error)
-	FundWallet(ctx context.Context, req domain.FundWalletRequest) (*domain.Transaction, error)
+	FundWallet(ctx context.Context, req domain.FundWalletRequest, userID uuid.UUID) (*domain.Transaction, error)
 	Transfer(ctx context.Context, req domain.TransferRequest) (*domain.Transaction, error)
 	GetTransaction(ctx context.Context, id uuid.UUID) (*domain.Transaction, error)
 	ListTransactions(ctx context.Context, walletID uuid.UUID, limit, offset int32) ([]*domain.Transaction, int64, error)
@@ -100,7 +100,11 @@ func (s *paymentService) GetWalletByUserID(ctx context.Context, userID uuid.UUID
 
 // FundWallet adds money to a wallet from an external source.
 // Idempotent — duplicate requests with the same key return the original transaction.
-func (s *paymentService) FundWallet(ctx context.Context, req domain.FundWalletRequest) (*domain.Transaction, error) {
+func (s *paymentService) FundWallet(
+	ctx context.Context,
+	req domain.FundWalletRequest,
+	userID uuid.UUID,
+) (*domain.Transaction, error) {
 	// If we've seen this key before, return the existing transaction.
 	// This handles network retries safely — never fund twice.
 	existing, err := s.repo.GetTransactionByIdempotencyKey(ctx, req.IdempotencyKey)
@@ -116,7 +120,7 @@ func (s *paymentService) FundWallet(ctx context.Context, req domain.FundWalletRe
 	}
 
 	// Validate wallet exists
-	wallet, err := s.repo.GetWalletByID(ctx, req.WalletID)
+	wallet, err := s.repo.GetWalletByIDAndUserID(ctx, req.WalletID, userID)
 	if err != nil || wallet == nil {
 		return nil, fmt.Errorf("wallet not found")
 	}
@@ -146,14 +150,14 @@ func (s *paymentService) FundWallet(ctx context.Context, req domain.FundWalletRe
 	// Credit the wallet
 	// FundWallet uses atomic SQL (balance = balance + amount)
 	// No pessimistic lock needed — adding money is always safe to retry
-	_, err = s.repo.FundWallet(ctx, req.WalletID, req.Amount)
+	_, err = s.repo.FundWallet(ctx, tx, req.WalletID, req.Amount)
 	if err != nil {
 		return nil, fmt.Errorf("crediting wallet: %w", err)
 	}
 
 	// Mark transaction completed
 	now := time.Now().UTC()
-	txn, err = s.repo.UpdateTransactionStatus(ctx, txn.ID, domain.StatusCompleted, &now, nil)
+	txn, err = s.repo.UpdateTransactionStatus(ctx, tx, txn.ID, domain.StatusCompleted, &now, nil)
 	if err != nil {
 		return nil, fmt.Errorf("completing transaction: %w", err)
 	}
@@ -312,7 +316,7 @@ func (s *paymentService) executeTransfer(ctx context.Context, req domain.Transfe
 	// Credit receiver
 	// atomic SQL: balance = balance + amount
 	// Safe without a lock — adding never causes an overdraft
-	_, err = s.repo.FundWallet(ctx, req.ReceiverWalletID, req.Amount)
+	_, err = s.repo.FundWallet(ctx, tx, req.ReceiverWalletID, req.Amount)
 	if err != nil {
 		return nil, fmt.Errorf("crediting receiver: %w", err)
 	}
@@ -325,7 +329,7 @@ func (s *paymentService) executeTransfer(ctx context.Context, req domain.Transfe
 
 	// Mark transaction completed
 	now := time.Now().UTC()
-	txn, err = s.repo.UpdateTransactionStatus(ctx, txn.ID, domain.StatusCompleted, &now, nil)
+	txn, err = s.repo.UpdateTransactionStatus(ctx, tx, txn.ID, domain.StatusCompleted, &now, nil)
 	if err != nil {
 		return nil, fmt.Errorf("completing transaction: %w", err)
 	}
