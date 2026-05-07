@@ -49,6 +49,8 @@ func (h *AuthHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.POST("/login", h.Login)
 	rg.POST("/refresh", h.RefreshToken)
 
+	rg.POST("/validate-token", h.ValidateToken)
+
 	// Protected routes — valid JWT required
 	protected := rg.Group("")
 	protected.Use(h.RequireAuth())
@@ -292,4 +294,31 @@ func (h *AuthHandler) Me(c *gin.Context) {
 	}
 
 	ok(c, user.ToUserResponse())
+}
+
+// ValidateToken is an internal endpoint called by other services
+// to verify a token is valid AND not revoked.
+// Protected by mTLS in production — not exposed to the public internet.
+func (h *AuthHandler) ValidateToken(c *gin.Context) {
+	var req struct {
+		Token string `json:"token" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+
+	claims, err := h.jwtSvc.ValidateToken(c.Request.Context(), req.Token, "access")
+	if err != nil {
+		fail(c, http.StatusUnauthorized, "INVALID_TOKEN", "token is invalid or revoked")
+		return
+	}
+
+	// Return the claims so the calling service doesn't need to parse the token again
+	ok(c, gin.H{
+		"valid":      true,
+		"user_id":    claims.UserID.String(),
+		"tier":       claims.Tier,
+		"kyc_status": claims.KYCStatus,
+	})
 }

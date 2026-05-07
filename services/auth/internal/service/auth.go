@@ -312,7 +312,7 @@ func (s *authService) Login(ctx context.Context, req LoginRequest) (*domain.Toke
 // The old refresh token is revoked immediately — single use prevents replay.
 func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*domain.TokenPair, error) {
 	// Validate the refresh token
-	claims, err := s.jwtSvc.ValidateToken(ctx, refreshToken, tokenTypeRefresh)
+	claims, err := s.jwtSvc.ValidateToken(ctx, refreshToken, domain.TokenTypeRefresh)
 	if err != nil {
 		return nil, fmt.Errorf("invalid refresh token: %w", err)
 	}
