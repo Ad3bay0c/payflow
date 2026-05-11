@@ -49,7 +49,6 @@ func (h *PaymentHandler) RegisterRoutes(
 	standard.GET("/wallets/:id", h.GetWallet)
 	standard.GET("/payments/:id", h.GetTransaction)
 	standard.GET("/payments", h.ListTransactions)
-	standard.POST("/wallets/:id/fund", h.FundWallet)
 
 	// Strict auth — local + auth service introspection
 	// Used for transfers — money leaves a wallet
@@ -114,36 +113,6 @@ func (h *PaymentHandler) GetWallet(c *gin.Context) {
 	}
 
 	ok(c, toWalletResponse(wallet))
-}
-
-func (h *PaymentHandler) FundWallet(c *gin.Context) {
-	userID := getUserID(c)
-
-	walletID, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		fail(c, http.StatusBadRequest, "INVALID_ID", "invalid wallet ID")
-		return
-	}
-
-	var req fundWalletRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		fail(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
-		return
-	}
-
-	txn, err := h.paymentSvc.FundWallet(c.Request.Context(), domain.FundWalletRequest{
-		IdempotencyKey: req.IdempotencyKey,
-		WalletID:       walletID,
-		Amount:         req.Amount,
-		Description:    req.Description,
-	}, userID)
-	if err != nil {
-		h.logger.Error("fund wallet failed", zap.Error(err))
-		fail(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to fund wallet")
-		return
-	}
-
-	ok(c, toTransactionResponse(txn))
 }
 
 func (h *PaymentHandler) Transfer(c *gin.Context) {

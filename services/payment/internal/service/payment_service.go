@@ -20,7 +20,7 @@ type PaymentService interface {
 	CreateWallet(ctx context.Context, userID uuid.UUID) (*domain.Wallet, error)
 	GetWallet(ctx context.Context, walletID uuid.UUID) (*domain.Wallet, error)
 	GetWalletByUserID(ctx context.Context, userID uuid.UUID) (*domain.Wallet, error)
-	FundWallet(ctx context.Context, req domain.FundWalletRequest, userID uuid.UUID) (*domain.Transaction, error)
+	FundWallet(ctx context.Context, req domain.FundWalletRequest) (*domain.Transaction, error)
 	Transfer(ctx context.Context, req domain.TransferRequest) (*domain.Transaction, error)
 	GetTransaction(ctx context.Context, id uuid.UUID) (*domain.Transaction, error)
 	ListTransactions(ctx context.Context, walletID uuid.UUID, limit, offset int32) ([]*domain.Transaction, int64, error)
@@ -103,7 +103,6 @@ func (s *paymentService) GetWalletByUserID(ctx context.Context, userID uuid.UUID
 func (s *paymentService) FundWallet(
 	ctx context.Context,
 	req domain.FundWalletRequest,
-	userID uuid.UUID,
 ) (*domain.Transaction, error) {
 	// If we've seen this key before, return the existing transaction.
 	// This handles network retries safely — never fund twice.
@@ -120,7 +119,7 @@ func (s *paymentService) FundWallet(
 	}
 
 	// Validate wallet exists
-	wallet, err := s.repo.GetWalletByIDAndUserID(ctx, req.WalletID, userID)
+	wallet, err := s.repo.GetWalletByID(ctx, req.WalletID)
 	if err != nil || wallet == nil {
 		return nil, fmt.Errorf("wallet not found")
 	}
