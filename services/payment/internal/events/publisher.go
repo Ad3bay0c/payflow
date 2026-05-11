@@ -87,6 +87,7 @@ func buildEvent(eventType string, txn *domain.Transaction) domain.PaymentEvent {
 		Type:          txn.Type,
 		Status:        txn.Status,
 		Amount:        txn.Amount,
+		Fee:           txn.Fee,
 		Currency:      txn.Currency,
 		OccurredAt:    time.Now().UTC(),
 	}

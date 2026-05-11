@@ -113,6 +113,7 @@ type PaymentEvent struct {
 	Type          TransactionType   `json:"type"`
 	Status        TransactionStatus `json:"status"`
 	Amount        int64             `json:"amount"`
+	Fee           int64             `json:"fee"`
 	Currency      string            `json:"currency"`
 	SenderID      *string           `json:"sender_wallet_id,omitempty"`
 	ReceiverID    *string           `json:"receiver_wallet_id,omitempty"`
