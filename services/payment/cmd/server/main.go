@@ -97,6 +97,28 @@ func main() {
 	// Build HTTP router
 	router := buildRouter(cfg, paymentHandler)
 
+	adminHandler := handler.NewAdminHandler(paymentSvc, logger)
+
+	adminRouter := buildAdminRouter(cfg, adminHandler)
+
+	adminSrv := &http.Server{
+		Addr:         fmt.Sprintf(":%d", cfg.AdminPort),
+		Handler:      adminRouter,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	go func() {
+		logger.Info("admin server listening",
+			zap.String("addr", adminSrv.Addr),
+			zap.String("warning", "never expose this port to the public internet"),
+		)
+		if err := adminSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Fatal("admin server error", zap.Error(err))
+		}
+	}()
+
 	// Start server with graceful shutdown
 	srv := &http.Server{
 		Addr:         cfg.Addr(),
@@ -224,4 +246,27 @@ func buildLogger(env string) (*zap.Logger, error) {
 		return zap.NewProduction()
 	}
 	return zap.NewDevelopment()
+}
+
+func buildAdminRouter(
+	cfg *config.Config,
+	adminHandler *handler.AdminHandler,
+) *gin.Engine {
+	if cfg.Environment == "production" {
+		gin.SetMode(gin.ReleaseMode)
+	}
+
+	router := gin.New()
+	router.Use(gin.Recovery())
+	router.Use(handler.TraceID())
+
+	router.GET("/health/live", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
+
+	// Admin routes — protected by API key
+	admin := router.Group("/admin/v1")
+	adminHandler.RegisterRoutes(admin)
+
+	return router
 }

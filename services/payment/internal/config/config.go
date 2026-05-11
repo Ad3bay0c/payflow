@@ -13,6 +13,7 @@ import (
 type Config struct {
 	Environment    string
 	Port           int
+	AdminPort      int
 	AuthServiceURL string
 	Database       DatabaseConfig
 	JWT            JWTConfig
@@ -44,6 +45,11 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
+	adminPort, err := getInt("ADMIN_PORT", 8083)
+	if err != nil {
+		return nil, err
+	}
+
 	dbPort, err := getInt("DB_PORT", 5433)
 	if err != nil {
 		return nil, err
@@ -68,6 +74,7 @@ func Load() (*Config, error) {
 	return &Config{
 		Environment:    getString("ENVIRONMENT", "development"),
 		Port:           port,
+		AdminPort:      adminPort,
 		AuthServiceURL: getString("AUTH_SERVICE_URL", "http://localhost:8081"),
 		Database: DatabaseConfig{
 			Host:     getString("DB_HOST", "localhost"),
