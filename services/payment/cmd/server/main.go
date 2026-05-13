@@ -24,6 +24,7 @@ import (
 	"github.com/Ad3bay0c/payflow/payment/internal/config"
 	"github.com/Ad3bay0c/payflow/payment/internal/events"
 	"github.com/Ad3bay0c/payflow/payment/internal/handler"
+	"github.com/Ad3bay0c/payflow/payment/internal/relay"
 	"github.com/Ad3bay0c/payflow/payment/internal/repository"
 	"github.com/Ad3bay0c/payflow/payment/internal/service"
 )
@@ -72,7 +73,7 @@ func main() {
 		)
 	}
 
-	publisher := events.NewKafkaPublisher(cfg.Kafka.Brokers)
+	logger.Info("outbox relay started")
 
 	logger.Info("kafka publisher ready",
 		zap.Strings("brokers", cfg.Kafka.Brokers),
@@ -84,7 +85,6 @@ func main() {
 
 	paymentSvc := service.NewPaymentService(
 		paymentRepo,
-		publisher,
 		logger,
 	)
 
@@ -108,6 +108,16 @@ func main() {
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
+
+	outboxRelay := relay.NewOutboxRelay(paymentRepo, cfg.Kafka.Brokers, logger)
+	defer outboxRelay.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		outboxRelay.Start(ctx)
+	}()
 
 	go func() {
 		logger.Info("admin server listening",
