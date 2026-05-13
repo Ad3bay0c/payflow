@@ -42,6 +42,12 @@ type PaymentRepository interface {
 	UpdateDailyTransferTotal(ctx context.Context, tx pgx.Tx, walletID uuid.UUID, amount int64) error
 
 	GetFeeTiers(ctx context.Context) ([]domain.FeeTier, error)
+
+	CreateOutboxEvent(ctx context.Context, tx pgx.Tx, topic, messageKey string, payload []byte) error
+	GetPendingOutboxEvents(ctx context.Context, limit int32) ([]gendb.OutboxEvent, error)
+	MarkOutboxEventPublished(ctx context.Context, id uuid.UUID) error
+	MarkOutboxEventFailed(ctx context.Context, id uuid.UUID) error
+	IncrementOutboxAttempt(ctx context.Context, id uuid.UUID) error
 }
 
 type CreateTransactionParams struct {
@@ -385,4 +391,38 @@ func (r *postgresPaymentRepository) GetFeeTiers(ctx context.Context) ([]domain.F
 		}
 	}
 	return tiers, nil
+}
+
+func (r *postgresPaymentRepository) CreateOutboxEvent(
+	ctx context.Context,
+	tx pgx.Tx,
+	topic string,
+	messageKey string,
+	payload []byte,
+) error {
+	qtx := r.queries.WithTx(tx)
+	_, err := qtx.CreateOutboxEvent(ctx, gendb.CreateOutboxEventParams{
+		ID:         pgconv.ToPgUUID(uuid.New()),
+		Topic:      topic,
+		MessageKey: messageKey,
+		Payload:    payload,
+		CreatedAt:  pgconv.ToPgTimestamp(time.Now().UTC()),
+	})
+	return err
+}
+
+func (r *postgresPaymentRepository) GetPendingOutboxEvents(ctx context.Context, limit int32) ([]gendb.OutboxEvent, error) {
+	return r.queries.GetPendingOutboxEvents(ctx, limit)
+}
+
+func (r *postgresPaymentRepository) MarkOutboxEventPublished(ctx context.Context, id uuid.UUID) error {
+	return r.queries.MarkOutboxEventPublished(ctx, pgconv.ToPgUUID(id))
+}
+
+func (r *postgresPaymentRepository) MarkOutboxEventFailed(ctx context.Context, id uuid.UUID) error {
+	return r.queries.MarkOutboxEventFailed(ctx, pgconv.ToPgUUID(id))
+}
+
+func (r *postgresPaymentRepository) IncrementOutboxAttempt(ctx context.Context, id uuid.UUID) error {
+	return r.queries.IncrementOutboxAttempt(ctx, pgconv.ToPgUUID(id))
 }

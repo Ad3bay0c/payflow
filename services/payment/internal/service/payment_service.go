@@ -7,11 +7,12 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/goccy/go-json"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"go.uber.org/zap"
 
 	"github.com/Ad3bay0c/payflow/payment/internal/domain"
-	"github.com/Ad3bay0c/payflow/payment/internal/events"
 	"github.com/Ad3bay0c/payflow/payment/internal/repository"
 )
 
@@ -32,22 +33,19 @@ const maxTransferRetries = 3
 const versionConflictError = "version conflict: wallet was modified concurrently"
 
 type paymentService struct {
-	repo      repository.PaymentRepository
-	publisher events.Publisher
-	logger    *zap.Logger
-	cache     *referenceDataCache
+	repo   repository.PaymentRepository
+	logger *zap.Logger
+	cache  *referenceDataCache
 }
 
 func NewPaymentService(
 	repo repository.PaymentRepository,
-	publisher events.Publisher,
 	logger *zap.Logger,
 ) PaymentService {
 	return &paymentService{
-		repo:      repo,
-		publisher: publisher,
-		logger:    logger,
-		cache:     newReferenceDataCache(5 * time.Minute),
+		repo:   repo,
+		logger: logger,
+		cache:  newReferenceDataCache(5 * time.Minute),
 	}
 }
 
@@ -161,18 +159,13 @@ func (s *paymentService) FundWallet(
 		return nil, fmt.Errorf("completing transaction: %w", err)
 	}
 
+	if err := s.writeOutboxEvent(ctx, tx, "payment.completed", txn); err != nil {
+		return nil, fmt.Errorf("writing outbox event: %w", err)
+	}
+
 	// Commit
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("committing transaction: %w", err)
-	}
-
-	// Publish event (after commit — never before)
-	if err := s.publisher.PublishPaymentCompleted(ctx, txn); err != nil {
-		// Log but don't fail — the money moved, the record exists.
-		s.logger.Error("failed to publish funding event",
-			zap.String("transaction_id", txn.ID.String()),
-			zap.Error(err),
-		)
 	}
 
 	s.logger.Info("wallet funded",
@@ -333,17 +326,13 @@ func (s *paymentService) executeTransfer(ctx context.Context, req domain.Transfe
 		return nil, fmt.Errorf("completing transaction: %w", err)
 	}
 
+	if err := s.writeOutboxEvent(ctx, tx, "payment.completed", txn); err != nil {
+		return nil, fmt.Errorf("writing outbox event: %w", err)
+	}
+
 	// Commit
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("committing: %w", err)
-	}
-
-	// Publish event (always after commit)
-	if err := s.publisher.PublishPaymentCompleted(ctx, txn); err != nil {
-		s.logger.Error("failed to publish transfer event",
-			zap.String("transaction_id", txn.ID.String()),
-			zap.Error(err),
-		)
 	}
 
 	s.logger.Info("transfer completed",
@@ -448,4 +437,45 @@ func (s *paymentService) calculateFee(ctx context.Context, amount int64) (int64,
 
 	// Should never reach here — last tier always has MaxAmountKobo = 0
 	return 0, fmt.Errorf("no matching fee tier found for amount %d", amount)
+}
+
+// writeOutboxEvent writes a payment event to the outbox table
+// inside the same database transaction as the payment.
+func (s *paymentService) writeOutboxEvent(
+	ctx context.Context,
+	tx pgx.Tx,
+	topic string,
+	txn *domain.Transaction,
+) error {
+	event := buildPaymentEvent(topic, txn)
+
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("marshalling event: %w", err)
+	}
+
+	return s.repo.CreateOutboxEvent(ctx, tx, topic, txn.ID.String(), payload)
+}
+
+func buildPaymentEvent(eventType string, txn *domain.Transaction) domain.PaymentEvent {
+	event := domain.PaymentEvent{
+		EventID:       uuid.NewString(),
+		EventType:     eventType,
+		TransactionID: txn.ID.String(),
+		Type:          txn.Type,
+		Status:        txn.Status,
+		Amount:        txn.Amount,
+		Fee:           txn.Fee,
+		Currency:      txn.Currency,
+		OccurredAt:    time.Now().UTC(),
+	}
+	if txn.SenderWalletID != nil {
+		s := txn.SenderWalletID.String()
+		event.SenderID = &s
+	}
+	if txn.ReceiverWalletID != nil {
+		r := txn.ReceiverWalletID.String()
+		event.ReceiverID = &r
+	}
+	return event
 }
