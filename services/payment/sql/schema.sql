@@ -52,3 +52,16 @@ CREATE TABLE fee_tiers (
        is_active        BOOLEAN     NOT NULL DEFAULT true,
        updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE outbox_events (
+       id           UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+       topic        VARCHAR(100) NOT NULL,
+       message_key  VARCHAR(100) NOT NULL,
+       payload      JSONB        NOT NULL,
+       status       VARCHAR(20)  NOT NULL DEFAULT 'pending'
+           CHECK (status IN ('pending', 'published', 'failed')),
+       attempts     INT          NOT NULL DEFAULT 0,
+       last_attempt TIMESTAMPTZ,
+       published_at TIMESTAMPTZ,
+       created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);

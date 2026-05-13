@@ -40,3 +40,42 @@ ORDER BY created_at DESC
 SELECT COUNT(*) FROM transactions
 WHERE sender_wallet_id = @wallet_id
    OR receiver_wallet_id = @wallet_id;
+
+-- name: CreateOutboxEvent :one
+INSERT INTO outbox_events (id, topic, message_key, payload, created_at)
+VALUES ($1, $2, $3, $4, $5)
+    RETURNING *;
+
+-- name: GetPendingOutboxEvents :many
+-- Relay fetches pending events in batches ordered by creation time.
+-- SKIP LOCKED means multiple relay instances can run safely —
+-- each instance locks the rows it's processing, others skip them.
+SELECT * FROM outbox_events
+WHERE status = 'pending'
+  AND (last_attempt IS NULL OR last_attempt < NOW() - INTERVAL '30 seconds')
+ORDER BY created_at ASC
+    LIMIT $1
+FOR UPDATE SKIP LOCKED;
+
+-- name: MarkOutboxEventPublished :exec
+UPDATE outbox_events
+SET status       = 'published',
+    published_at = NOW()
+WHERE id = $1;
+
+-- name: MarkOutboxEventFailed :exec
+UPDATE outbox_events
+SET status       = 'failed',
+    attempts     = attempts + 1,
+    last_attempt = NOW()
+WHERE id = $1;
+
+-- name: IncrementOutboxAttempt :exec
+UPDATE outbox_events
+SET attempts     = attempts + 1,
+    last_attempt = NOW(),
+    status       = CASE
+                       WHEN attempts + 1 >= 5 THEN 'failed'
+                       ELSE 'pending'
+        END
+WHERE id = $1;
