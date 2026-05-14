@@ -58,6 +58,32 @@ func (h *AuthHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	protected.GET("/me", h.Me)
 }
 
+func (h *AuthHandler) RegisterInternalRoutes(rg *gin.RouterGroup) {
+	rg.Use(requireAdminKey(h.logger))
+	rg.GET("/users/:id", h.GetUserInternal)
+}
+
+func (h *AuthHandler) GetUserInternal(c *gin.Context) {
+	userID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		fail(c, http.StatusBadRequest, "INVALID_ID", "invalid user ID")
+		return
+	}
+
+	user, err := h.authSvc.GetUser(c.Request.Context(), userID)
+	if err != nil {
+		fail(c, http.StatusNotFound, "NOT_FOUND", "user not found")
+		return
+	}
+
+	ok(c, gin.H{
+		"user_id":      user.ID.String(),
+		"phone_number": user.PhoneNumber,
+		"kyc_status":   user.KYCStatus,
+		"tier":         user.Tier,
+	})
+}
+
 type requestOTPRequest struct {
 	PhoneNumber string `json:"phone_number" binding:"required"`
 }

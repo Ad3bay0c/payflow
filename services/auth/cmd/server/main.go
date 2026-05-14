@@ -187,6 +187,9 @@ func buildRouter(
 	v1 := router.Group("/api/v1/auth")
 	authHandler.RegisterRoutes(v1)
 
+	internal := router.Group("/internal")
+	authHandler.RegisterInternalRoutes(internal)
+
 	return router
 }
 

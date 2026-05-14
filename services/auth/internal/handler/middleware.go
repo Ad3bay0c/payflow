@@ -7,10 +7,12 @@ package handler
 
 import (
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 
 	"github.com/Ad3bay0c/payflow/auth/internal/domain"
 )
@@ -65,4 +67,41 @@ func (h *AuthHandler) RequireAuth() gin.HandlerFunc {
 		c.Set("user_id", claims.UserID.String())
 		c.Next()
 	}
+}
+
+func requireAdminKey(logger *zap.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		adminKey := os.Getenv("ADMIN_API_KEY")
+		if adminKey == "" {
+			fail(c, http.StatusServiceUnavailable, "NOT_CONFIGURED", "admin access not configured")
+			c.Abort()
+			return
+		}
+
+		provided := c.GetHeader("X-Admin-Key")
+		if provided == "" {
+			fail(c, http.StatusUnauthorized, "UNAUTHORISED", "admin API key required")
+			c.Abort()
+			return
+		}
+
+		if !secureCompare(provided, adminKey) {
+			fail(c, http.StatusUnauthorized, "UNAUTHORISED", "invalid admin API key")
+			c.Abort()
+			return
+		}
+
+		c.Next()
+	}
+}
+
+func secureCompare(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	var result byte
+	for i := range a {
+		result |= a[i] ^ b[i]
+	}
+	return result == 0
 }

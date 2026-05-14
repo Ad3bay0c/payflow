@@ -43,6 +43,34 @@ func (h *AdminHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.POST("/wallets/:id/fund", h.FundWallet)
 }
 
+// RegisterInternalRoutes adds internal-only routes for service-to-service calls.
+func (h *AdminHandler) RegisterInternalRoutes(rg *gin.RouterGroup) {
+	rg.Use(requireAdminKey())
+	rg.GET("/wallets/:id/owner", h.GetWalletOwner)
+}
+
+func (h *AdminHandler) GetWalletOwner(c *gin.Context) {
+	walletID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		fail(c, http.StatusBadRequest, "INVALID_ID", "invalid wallet ID")
+		return
+	}
+
+	wallet, err := h.paymentSvc.GetWallet(c.Request.Context(), walletID)
+	if err != nil {
+		fail(c, http.StatusNotFound, "NOT_FOUND", "wallet not found")
+		return
+	}
+
+	// We need the user's phone from the auth service
+	// For now return the user_id — notification service
+	// can call auth service directly for the phone
+	ok(c, gin.H{
+		"user_id":   wallet.UserID.String(),
+		"wallet_id": wallet.ID.String(),
+	})
+}
+
 // FundWallet credits a wallet directly.
 // Only callable with a valid admin API key.
 // In production — replaced by Paystack/NIBSS webhook handlers in Phase 7.

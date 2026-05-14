@@ -278,5 +278,8 @@ func buildAdminRouter(
 	admin := router.Group("/admin/v1")
 	adminHandler.RegisterRoutes(admin)
 
+	internal := router.Group("/internal")
+	adminHandler.RegisterInternalRoutes(internal)
+
 	return router
 }
