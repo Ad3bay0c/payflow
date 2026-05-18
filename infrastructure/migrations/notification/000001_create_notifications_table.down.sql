@@ -1,0 +1,6 @@
+BEGIN;
+
+DROP TABLE IF EXISTS notifications;
+DROP EXTENSION IF EXISTS "uuid-ossp";
+
+COMMIT;
