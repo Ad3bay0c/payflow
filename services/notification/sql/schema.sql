@@ -12,6 +12,9 @@ CREATE TABLE notifications (
        provider_ref    VARCHAR(255),
        error_message   TEXT,
        sent_at         TIMESTAMPTZ,
+       event_id      VARCHAR(100),
+       notif_type    VARCHAR(50),
+       wallet_id_ref VARCHAR(100),
        created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
        updated_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );

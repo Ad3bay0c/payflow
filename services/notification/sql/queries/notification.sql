@@ -40,3 +40,22 @@ FOR UPDATE SKIP LOCKED;
 SELECT * FROM notifications
 WHERE transaction_id = $1
 ORDER BY created_at ASC;
+
+-- name: CreatePendingNotification :one
+INSERT INTO notifications (
+    id, transaction_id, user_id, recipient,
+    channel, body, status, event_id,
+    notif_type, wallet_id_ref,
+    created_at, updated_at
+) VALUES (
+             $1, $2, $3, $4, $5, $6, 'pending', $7, $8, $9, $10, $10
+         )
+    ON CONFLICT (event_id, notif_type) DO NOTHING
+RETURNING *;
+
+-- name: UpdateNotificationRecipient :exec
+UPDATE notifications
+SET recipient  = $2,
+    user_id    = $3,
+    updated_at = NOW()
+WHERE id = $1;

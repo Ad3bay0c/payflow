@@ -20,6 +20,9 @@ type NotificationRepository interface {
 	MarkSent(ctx context.Context, id uuid.UUID, providerRef string) error
 	MarkFailed(ctx context.Context, id uuid.UUID, errMsg string) error
 	GetByTransactionID(ctx context.Context, transactionID uuid.UUID) ([]*domain.Notification, error)
+	CreatePendingNotification(ctx context.Context, req domain.NotificationRequest) error
+	GetPendingNotifications(ctx context.Context, limit int32) ([]*domain.Notification, error)
+	UpdateRecipient(ctx context.Context, id uuid.UUID, phone string, userID uuid.UUID) error
 }
 
 type postgresNotificationRepository struct {
@@ -82,6 +85,46 @@ func (r *postgresNotificationRepository) GetByTransactionID(ctx context.Context,
 		notifications[i] = toDomainNotification(row)
 	}
 	return notifications, nil
+}
+
+func (r *postgresNotificationRepository) CreatePendingNotification(ctx context.Context, req domain.NotificationRequest) error {
+	now := time.Now().UTC()
+	_, err := r.queries.CreatePendingNotification(ctx, db.CreatePendingNotificationParams{
+		ID:            pgconv.ToPgUUID(uuid.New()),
+		TransactionID: pgconv.ToPgUUID(req.TransactionID),
+		UserID:        pgconv.ToPgUUID(req.UserID),
+		Recipient:     req.Recipient, // wallet_id placeholder
+		Channel:       string(req.Channel),
+		Body:          req.Body,
+		EventID:       pgconv.ToPgText(req.EventID),
+		NotifType:     pgconv.ToPgText(req.NotifType),
+		WalletIDRef:   pgconv.ToPgText(req.Recipient), // store wallet_id
+		CreatedAt:     pgconv.ToPgTimestamp(now),
+	})
+	if err != nil {
+		return fmt.Errorf("creating pending notification: %w", err)
+	}
+	return nil
+}
+
+func (r *postgresNotificationRepository) GetPendingNotifications(ctx context.Context, limit int32) ([]*domain.Notification, error) {
+	rows, err := r.queries.GetPendingNotifications(ctx, limit)
+	if err != nil {
+		return nil, fmt.Errorf("getting pending notifications: %w", err)
+	}
+	notifications := make([]*domain.Notification, len(rows))
+	for i, row := range rows {
+		notifications[i] = toDomainNotification(row)
+	}
+	return notifications, nil
+}
+
+func (r *postgresNotificationRepository) UpdateRecipient(ctx context.Context, id uuid.UUID, phone string, userID uuid.UUID) error {
+	return r.queries.UpdateNotificationRecipient(ctx, db.UpdateNotificationRecipientParams{
+		ID:        pgconv.ToPgUUID(id),
+		Recipient: phone,
+		UserID:    pgconv.ToPgUUID(userID),
+	})
 }
 
 func toDomainNotification(row db.Notification) *domain.Notification {

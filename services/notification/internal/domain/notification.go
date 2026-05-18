@@ -38,6 +38,8 @@ type Notification struct {
 	Body          string             `json:"body"`
 	Status        NotificationStatus `json:"status"`
 	Attempts      int                `json:"attempts"`
+	NotifType     string             `json:"notif_type"`
+	WalletIDRef   string             `json:"wallet_id_ref"`
 	ProviderRef   *string            `json:"provider_ref,omitempty"`
 	ErrorMessage  *string            `json:"error_message,omitempty"`
 	SentAt        *time.Time         `json:"sent_at,omitempty"`
@@ -65,10 +67,12 @@ type PaymentEvent struct {
 type NotificationRequest struct {
 	TransactionID uuid.UUID
 	UserID        uuid.UUID
-	Recipient     string
+	Recipient     string // wallet_id initially, phone after resolution
 	Channel       Channel
 	Subject       string
 	Body          string
+	EventID       string // for idempotency
+	NotifType     string // "transfer_debit" | "transfer_credit" | "wallet_funded"
 }
 
 // AmountInNaira converts kobo to naira for display in notifications.
