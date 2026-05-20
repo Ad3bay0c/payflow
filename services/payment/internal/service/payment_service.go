@@ -244,6 +244,17 @@ func (s *paymentService) executeTransfer(ctx context.Context, req domain.Transfe
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
+	fee, err := s.calculateFee(ctx, req.Amount)
+	if err != nil {
+		return nil, fmt.Errorf("calculating fee: %w", err)
+	}
+
+	// Check receiver exists
+	receiverWallet, err := s.repo.GetWalletByID(ctx, req.ReceiverWalletID)
+	if err != nil || receiverWallet == nil {
+		return nil, fmt.Errorf("receiver wallet not found")
+	}
+
 	// Lock sender wallet (pessimistic)
 	// FOR UPDATE acquires an exclusive row lock.
 	// Any other transaction trying to modify this wallet will wait until we commit or rollback.
@@ -253,23 +264,12 @@ func (s *paymentService) executeTransfer(ctx context.Context, req domain.Transfe
 		return nil, fmt.Errorf("sender wallet not found")
 	}
 
-	fee, err := s.calculateFee(ctx, req.Amount)
-	if err != nil {
-		return nil, fmt.Errorf("calculating fee: %w", err)
-	}
-
 	// Check sufficient balance (amount + fee)
 	if !senderWallet.HasSufficientBalance(req.Amount, fee) {
 		return nil, fmt.Errorf("insufficient balance: have %d kobo, need %d kobo",
 			senderWallet.Balance,
 			req.Amount+fee,
 		)
-	}
-
-	// Check receiver exists
-	receiverWallet, err := s.repo.GetWalletByID(ctx, req.ReceiverWalletID)
-	if err != nil || receiverWallet == nil {
-		return nil, fmt.Errorf("receiver wallet not found")
 	}
 
 	// Create transaction pending record
@@ -306,15 +306,12 @@ func (s *paymentService) executeTransfer(ctx context.Context, req domain.Transfe
 	}
 
 	// Credit receiver
-	// atomic SQL: balance = balance + amount
-	// Safe without a lock — adding never causes an overdraft
 	_, err = s.repo.FundWallet(ctx, tx, req.ReceiverWalletID, req.Amount)
 	if err != nil {
 		return nil, fmt.Errorf("crediting receiver: %w", err)
 	}
 
 	// Update daily transfer summary
-	// Done inside the transaction so it rolls back if anything fails.
 	if err = s.repo.UpdateDailyTransferTotal(ctx, tx, req.SenderWalletID, req.Amount); err != nil {
 		return nil, fmt.Errorf("updating daily summary: %w", err)
 	}
