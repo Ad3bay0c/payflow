@@ -50,7 +50,9 @@ INSERT INTO notifications (
 ) VALUES (
              $1, $2, $3, $4, $5, $6, 'pending', $7, $8, $9, $10, $10
          )
-    ON CONFLICT (event_id, notif_type) DO NOTHING
+    ON CONFLICT (event_id, notif_type)
+    WHERE event_id IS NOT NULL
+    DO NOTHING
 RETURNING *;
 
 -- name: UpdateNotificationRecipient :exec
