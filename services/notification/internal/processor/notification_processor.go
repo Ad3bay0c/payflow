@@ -96,7 +96,7 @@ func (p *NotificationProcessor) processOne(ctx context.Context, notif *domain.No
 	phone := notif.Recipient
 	userID := notif.UserID
 
-	// If recipient looks like a UUID it's still a wallet_id — resolve it
+	// If recipient looks like a UUID it's still a walletID — resolve it
 	if isWalletID(notif.Recipient) {
 		resolvedUserID, resolvedPhone, err := p.userLookup.GetPhoneByWalletID(ctx, notif.Recipient)
 		if err != nil {

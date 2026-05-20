@@ -146,7 +146,8 @@ func (c *PaymentConsumer) persist(ctx context.Context, msg kafka.Message) error 
 			walletIDs = append(walletIDs, pendingNotif{
 				walletID:      *event.SenderID,
 				notifType:     "transfer_debit",
-				amountKobo:    event.Amount + event.Fee,
+				amountKobo:    event.Amount,
+				feeKobo:       event.Fee,
 				displayAmount: event.Amount + event.Fee,
 			})
 		}
@@ -167,6 +168,15 @@ func (c *PaymentConsumer) persist(ctx context.Context, msg kafka.Message) error 
 				displayAmount: event.Amount,
 			})
 		}
+	case "withdrawal":
+		if event.SenderID != nil {
+			walletIDs = append(walletIDs, pendingNotif{
+				walletID:      *event.SenderID,
+				notifType:     "withdrawal_debit",
+				amountKobo:    event.Amount,
+				displayAmount: event.Amount,
+			})
+		}
 	default:
 		c.logger.Debug("no notification configured for event type",
 			zap.String("type", event.Type),
@@ -181,7 +191,7 @@ func (c *PaymentConsumer) persist(ctx context.Context, msg kafka.Message) error 
 			UserID:        uuid.Nil,   // this will be resolved by the processor
 			Recipient:     n.walletID, // wallet_id as placeholder
 			Channel:       domain.ChannelSMS,
-			Body:          buildMessageBody(n.notifType, n.displayAmount, txnID.String()[:8]),
+			Body:          buildMessageBody(n.notifType, n.amountKobo, n.feeKobo, txnID.String()[:8]),
 			EventID:       event.EventID, // for idempotency
 			NotifType:     n.notifType,
 		}
@@ -199,15 +209,18 @@ type pendingNotif struct {
 	notifType     string
 	amountKobo    int64
 	displayAmount int64
+	feeKobo       int64
 }
 
-func buildMessageBody(notifType string, amountKobo int64, txnRef string) string {
+func buildMessageBody(notifType string, amountKobo, feeKobo int64, txnRef string) string {
 	naira := float64(amountKobo) / 100
 	switch notifType {
 	case "transfer_debit":
+		fee := float64(feeKobo) / 100
+		total := float64(amountKobo+feeKobo) / 100
 		return fmt.Sprintf(
-			"PayFlow: Your account has been debited ₦%.2f. Txn ref: %s",
-			naira, txnRef,
+			"PayFlow: Your account has been debited ₦%.2f. \nAmount: ₦%.2f. \nFee: ₦%.2f. \nTxn ref: %s",
+			total, naira, fee, txnRef,
 		)
 	case "transfer_credit":
 		return fmt.Sprintf(
