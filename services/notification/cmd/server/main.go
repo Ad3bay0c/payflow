@@ -19,9 +19,9 @@ import (
 	"github.com/Ad3bay0c/payflow/notification/internal/config"
 	"github.com/Ad3bay0c/payflow/notification/internal/consumer"
 	"github.com/Ad3bay0c/payflow/notification/internal/lookup"
+	"github.com/Ad3bay0c/payflow/notification/internal/processor"
 	"github.com/Ad3bay0c/payflow/notification/internal/provider"
 	"github.com/Ad3bay0c/payflow/notification/internal/repository"
-	"github.com/Ad3bay0c/payflow/notification/internal/service"
 )
 
 func main() {
@@ -64,8 +64,6 @@ func main() {
 		logger.Info("using logger SMS provider (development)")
 	}
 
-	pushSender := provider.NewLoggerPushProvider(logger)
-
 	userLookup := lookup.NewAuthServiceLookup(
 		cfg.AuthServiceURL,
 		cfg.PaymentServiceURL,
@@ -73,22 +71,23 @@ func main() {
 	)
 
 	notifRepo := repository.NewNotificationRepository(pool)
-	notifSvc := service.NewNotificationService(
-		notifRepo,
-		smsSender,
-		pushSender,
-		userLookup,
-		logger,
-	)
 
-	// Kafka consumer
+	// Consumer — writes pending records only
 	paymentConsumer := consumer.NewPaymentConsumer(
 		cfg.Kafka.Brokers,
 		cfg.Kafka.GroupID,
-		notifSvc,
+		notifRepo,
 		logger,
 	)
 	defer paymentConsumer.Close()
+
+	// Processor — delivers notifications from DB
+	notifProcessor := processor.NewNotificationProcessor(
+		notifRepo,
+		smsSender,
+		userLookup,
+		logger,
+	)
 
 	// Health server
 	router := buildRouter(cfg.Environment)
@@ -110,6 +109,8 @@ func main() {
 	go func() {
 		consumerErr <- paymentConsumer.Start(ctx)
 	}()
+
+	go func() { notifProcessor.Start(ctx) }()
 
 	logger.Info("notification service ready — consuming payment events")
 
