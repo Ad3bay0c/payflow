@@ -23,6 +23,7 @@ import (
 	authclient "github.com/Ad3bay0c/payflow/payment/internal/auth"
 	"github.com/Ad3bay0c/payflow/payment/internal/config"
 	"github.com/Ad3bay0c/payflow/payment/internal/events"
+	"github.com/Ad3bay0c/payflow/payment/internal/fraud"
 	"github.com/Ad3bay0c/payflow/payment/internal/handler"
 	"github.com/Ad3bay0c/payflow/payment/internal/relay"
 	"github.com/Ad3bay0c/payflow/payment/internal/repository"
@@ -83,8 +84,12 @@ func main() {
 
 	paymentRepo := repository.NewPaymentRepository(pool)
 
+	fraudHTTPClient := fraud.NewClient(cfg.FraudServiceURL, cfg.FraudServiceKey)
+	fraudClient := fraud.NewCircuitBreakerClient(fraudHTTPClient, logger)
+
 	paymentSvc := service.NewPaymentService(
 		paymentRepo,
+		fraudClient,
 		logger,
 	)
 
