@@ -11,6 +11,7 @@ import (
 type Config struct {
 	Environment   string
 	Port          int
+	GRPCPort      int
 	ServiceAPIKey string
 	Redis         RedisConfig
 }
@@ -26,9 +27,15 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
+	grpcPort, err := getInt("GRPC_PORT", 9090)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Config{
 		Environment:   getString("ENVIRONMENT", "development"),
 		Port:          port,
+		GRPCPort:      grpcPort,
 		ServiceAPIKey: getString("SERVICE_API_KEY", ""),
 		Redis: RedisConfig{
 			Addr:     getString("REDIS_ADDR", "localhost:6379"),
