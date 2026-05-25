@@ -84,8 +84,13 @@ func main() {
 
 	paymentRepo := repository.NewPaymentRepository(pool)
 
-	fraudHTTPClient := fraud.NewClient(cfg.FraudServiceURL, cfg.FraudServiceKey)
-	fraudClient := fraud.NewCircuitBreakerClient(fraudHTTPClient, logger)
+	fraudGRPCClient, err := fraud.NewGRPCClient(cfg.FraudServiceAddr)
+	if err != nil {
+		logger.Fatal("failed to connect to fraud service", zap.Error(err))
+	}
+	defer fraudGRPCClient.Close()
+
+	fraudClient := fraud.NewCircuitBreakerClient(fraudGRPCClient, logger)
 
 	paymentSvc := service.NewPaymentService(
 		paymentRepo,

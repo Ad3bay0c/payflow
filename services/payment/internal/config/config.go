@@ -19,8 +19,7 @@ type Config struct {
 	JWT            JWTConfig
 	Kafka          KafkaConfig
 
-	FraudServiceURL string
-	FraudServiceKey string
+	FraudServiceAddr string
 }
 
 type DatabaseConfig struct {
@@ -95,8 +94,7 @@ func Load() (*Config, error) {
 			Brokers: brokers,
 			GroupID: getString("KAFKA_GROUP_ID", "payment-service"),
 		},
-		FraudServiceURL: getString("FRAUD_SERVICE_URL", "http://localhost:8086"),
-		FraudServiceKey: getString("FRAUD_SERVICE_KEY", ""),
+		FraudServiceAddr: getString("FRAUD_SERVICE_ADDR", "localhost:9090"),
 	}, nil
 }
 
