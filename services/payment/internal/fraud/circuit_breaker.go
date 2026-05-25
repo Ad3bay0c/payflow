@@ -63,7 +63,7 @@ func (cb *CircuitBreakerClient) Check(ctx context.Context, req CheckRequest) (*C
 	switch state {
 	case stateOpen:
 		cb.logger.Warn("fraud service circuit OPEN — using fallback rules",
-			zap.String("transaction_id", req.TransactionID.String()),
+			zap.String("transaction_id", req.TransactionID),
 		)
 		return cb.fallback(req), nil
 

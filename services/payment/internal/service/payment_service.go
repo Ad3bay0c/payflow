@@ -294,13 +294,13 @@ func (s *paymentService) executeTransfer(ctx context.Context, req domain.Transfe
 
 	// *** Fraud check — synchronous, must complete within 80ms ***
 	fraudReq := fraud.CheckRequest{
-		TransactionID:    txn.ID,
-		SenderWalletID:   req.SenderWalletID,
-		ReceiverWalletID: req.ReceiverWalletID,
-		SenderUserID:     req.SenderUserID,
+		TransactionID:    txn.ID.String(),
+		SenderWalletID:   req.SenderWalletID.String(),
+		ReceiverWalletID: req.ReceiverWalletID.String(),
+		SenderUserID:     req.SenderUserID.String(),
 		Amount:           req.Amount,
 		Currency:         "NGN",
-		SenderTier:       req.SenderTier,
+		SenderTier:       int32(req.SenderTier),
 		SenderKYCStatus:  req.SenderKYCStatus,
 		RequestedAt:      time.Now().UTC(),
 	}
@@ -314,7 +314,7 @@ func (s *paymentService) executeTransfer(ctx context.Context, req domain.Transfe
 	} else if fraudResp.Decision == fraud.DecisionFlag {
 		s.logger.Warn("transaction flagged for review",
 			zap.String("transaction_id", txn.ID.String()),
-			zap.Int("risk_score", fraudResp.RiskScore),
+			zap.Int("risk_score", int(fraudResp.RiskScore)),
 			zap.Strings("reasons", fraudResp.Reasons),
 		)
 		// FLAG means allow but log — payment proceeds
