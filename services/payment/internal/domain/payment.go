@@ -91,9 +91,12 @@ type TransferRequest struct {
 	IdempotencyKey   string
 	SenderWalletID   uuid.UUID
 	ReceiverWalletID uuid.UUID
+	TransactionID    uuid.UUID
 	Amount           int64
 	Description      string
-	SenderTier       int16 // from JWT claims
+	SenderTier       int16
+	SenderKYCStatus  string
+	SenderUserID     uuid.UUID
 }
 
 // FundWalletRequest is the input for topping up a wallet.

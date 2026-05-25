@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/Ad3bay0c/payflow/payment/internal/domain"
+	"github.com/Ad3bay0c/payflow/payment/internal/fraud"
 	"github.com/Ad3bay0c/payflow/payment/internal/repository"
 )
 
@@ -33,19 +34,22 @@ const maxTransferRetries = 3
 const versionConflictError = "version conflict: wallet was modified concurrently"
 
 type paymentService struct {
-	repo   repository.PaymentRepository
-	logger *zap.Logger
-	cache  *referenceDataCache
+	repo        repository.PaymentRepository
+	fraudClient *fraud.CircuitBreakerClient
+	logger      *zap.Logger
+	cache       *referenceDataCache
 }
 
 func NewPaymentService(
 	repo repository.PaymentRepository,
+	fraudClient *fraud.CircuitBreakerClient,
 	logger *zap.Logger,
 ) PaymentService {
 	return &paymentService{
-		repo:   repo,
-		logger: logger,
-		cache:  newReferenceDataCache(5 * time.Minute),
+		repo:        repo,
+		fraudClient: fraudClient,
+		logger:      logger,
+		cache:       newReferenceDataCache(5 * time.Minute),
 	}
 }
 
@@ -288,6 +292,34 @@ func (s *paymentService) executeTransfer(ctx context.Context, req domain.Transfe
 		return nil, fmt.Errorf("creating transaction record: %w", err)
 	}
 
+	// *** Fraud check — synchronous, must complete within 80ms ***
+	fraudReq := fraud.CheckRequest{
+		TransactionID:    txn.ID,
+		SenderWalletID:   req.SenderWalletID,
+		ReceiverWalletID: req.ReceiverWalletID,
+		SenderUserID:     req.SenderUserID,
+		Amount:           req.Amount,
+		Currency:         "NGN",
+		SenderTier:       req.SenderTier,
+		SenderKYCStatus:  req.SenderKYCStatus,
+		RequestedAt:      time.Now().UTC(),
+	}
+
+	fraudResp, err := s.fraudClient.Check(ctx, fraudReq)
+	if err != nil {
+		// Circuit breaker already handled fallback — should not reach here
+		s.logger.Error("fraud check error", zap.Error(err))
+	} else if fraudResp.Decision == fraud.DecisionBlock {
+		return nil, fmt.Errorf("transaction blocked by fraud detection: %v", fraudResp.Reasons)
+	} else if fraudResp.Decision == fraud.DecisionFlag {
+		s.logger.Warn("transaction flagged for review",
+			zap.String("transaction_id", txn.ID.String()),
+			zap.Int("risk_score", fraudResp.RiskScore),
+			zap.Strings("reasons", fraudResp.Reasons),
+		)
+		// FLAG means allow but log — payment proceeds
+	}
+
 	// Debit sender (amount + fee) with (Optimistic Lock)
 	// We already hold the pessimistic lock from FOR UPDATE.
 	// The version check is a second line of defence.
@@ -331,6 +363,18 @@ func (s *paymentService) executeTransfer(ctx context.Context, req domain.Transfe
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("committing: %w", err)
 	}
+
+	// Record approved transfer with fraud service
+	go func() {
+		recordCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := s.fraudClient.RecordApproved(recordCtx, fraudReq); err != nil {
+			s.logger.Error("failed to record approved transfer with fraud service",
+				zap.String("transaction_id", txn.ID.String()),
+				zap.Error(err),
+			)
+		}
+	}()
 
 	s.logger.Info("transfer completed",
 		zap.String("transaction_id", txn.ID.String()),
