@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package fraud;
+
+option go_package = "github.com/Ad3bay0c/payflow/proto/gen/fraud";
+
+// FraudService evaluates payment requests for fraud risk.
+// Called synchronously by the payment service before every transfer.
+service FraudService {
+  // Check evaluates a payment request and returns a risk decision.
+  // Must respond within 80ms — the payment service times out after that.
+  rpc Check(CheckRequest) returns (CheckResponse);
+
+  // RecordApproved updates velocity counters after a successful transfer.
+  // Called after payment commits — best effort, never blocks payment.
+  rpc RecordApproved(CheckRequest) returns (RecordResponse);
+}
+
+message CheckRequest {
+  string transaction_id     = 1;
+  string sender_wallet_id   = 2;
+  string receiver_wallet_id = 3;
+  string sender_user_id     = 4;
+  int64  amount_kobo        = 5;
+  string currency           = 6;
+  int32  sender_tier        = 7;
+  string sender_kyc_status  = 8;
+  string ip_address         = 9;
+  string device_id          = 10;
+  string requested_at       = 11; // RFC3339 timestamp
+}
+
+message CheckResponse {
+  string   transaction_id = 1;
+  string   decision       = 2; // "ALLOW" | "BLOCK" | "FLAG"
+  int32    risk_score     = 3; // 0–100
+  string   risk_level     = 4; // "low" | "medium" | "high"
+  repeated string reasons = 5;
+  int64    latency_ms     = 6;
+}
+
+message RecordResponse {
+  bool recorded = 1;
+}

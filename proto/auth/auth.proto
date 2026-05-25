@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package auth;
+
+option go_package = "github.com/Ad3bay0c/payflow/proto/gen/auth";
+
+// AuthService provides internal user lookup for other services.
+// Used by the notification service to resolve wallet IDs to phone numbers.
+service AuthService {
+  // GetUserByID returns a user's profile by their user ID.
+  rpc GetUserByID(GetUserByIDRequest) returns (UserResponse);
+
+  // GetUserByWalletID returns the user who owns a given wallet.
+  // The payment service owns the wallet→user mapping.
+  // This endpoint is on the auth service for now — will move to
+  // payment service gRPC in Phase 4.
+  rpc GetPhoneByUserID(GetPhoneByUserIDRequest) returns (PhoneResponse);
+}
+
+message GetUserByIDRequest {
+  string user_id = 1;
+}
+
+message GetPhoneByUserIDRequest {
+  string user_id = 1;
+}
+
+message UserResponse {
+  string user_id      = 1;
+  string phone_number = 2;
+  string full_name    = 3;
+  string kyc_status   = 4;
+  int32  tier         = 5;
+}
+
+message PhoneResponse {
+  string user_id      = 1;
+  string phone_number = 2;
+}
