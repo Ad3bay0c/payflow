@@ -4,111 +4,78 @@ package lookup
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"time"
 
 	"github.com/google/uuid"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
+
+	"github.com/Ad3bay0c/payflow/notification/internal/service"
+	authpb "github.com/Ad3bay0c/payflow/proto/gen/auth"
 )
 
-type authServiceLookup struct {
-	authServiceURL    string
-	paymentServiceURL string
-	adminKey          string
-	httpClient        *http.Client
+var _ service.UserLookup = (*GRPCUserLookup)(nil)
+
+// GRPCUserLookup resolves wallet IDs to user contact details
+// using gRPC calls to the auth service.
+type GRPCUserLookup struct {
+	authClient         authpb.AuthServiceClient
+	authConn           *grpc.ClientConn
+	walletUserResolver WalletUserResolver
 }
 
-func NewAuthServiceLookup(authServiceURL, paymentServiceURL, adminKey string) *authServiceLookup {
-	return &authServiceLookup{
-		authServiceURL:    authServiceURL,
-		paymentServiceURL: paymentServiceURL,
-		adminKey:          adminKey,
-		httpClient:        &http.Client{Timeout: 3 * time.Second},
-	}
-}
-
-// GetPhoneByWalletID fetches user contact details for a wallet.
-// 1: payment service → get user_id from wallet_id
-// 2: auth service → get phone from user_id
-func (l *authServiceLookup) GetPhoneByWalletID(ctx context.Context, walletID string) (uuid.UUID, string, error) {
-	// get user_id from payment service
-	userID, err := l.getUserIDFromWallet(ctx, walletID)
-	if err != nil {
-		return uuid.Nil, "", fmt.Errorf("getting user from wallet: %w", err)
-	}
-
-	// get phone from auth service
-	phone, err := l.getPhoneFromAuth(ctx, userID.String())
-	if err != nil {
-		return uuid.Nil, "", fmt.Errorf("getting phone from auth: %w", err)
-	}
-
-	return userID, phone, nil
-}
-
-func (l *authServiceLookup) getUserIDFromWallet(ctx context.Context, walletID string) (uuid.UUID, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		fmt.Sprintf("%s/internal/wallets/%s/owner", l.paymentServiceURL, walletID),
-		nil,
+func NewGRPCUserLookup(
+	authServiceAddr string,
+	resolver WalletUserResolver,
+) (*GRPCUserLookup, error) {
+	conn, err := grpc.NewClient(authServiceAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                10 * time.Second,
+			Timeout:             5 * time.Second,
+			PermitWithoutStream: true,
+		}),
 	)
 	if err != nil {
-		return uuid.Nil, err
-	}
-	req.Header.Set("X-Admin-Key", l.adminKey)
-
-	resp, err := l.httpClient.Do(req)
-	if err != nil {
-		return uuid.Nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return uuid.Nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		return nil, fmt.Errorf("connecting to auth service: %w", err)
 	}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return uuid.Nil, err
-	}
-
-	var result struct {
-		Data struct {
-			UserID string `json:"user_id"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return uuid.Nil, err
-	}
-
-	return uuid.Parse(result.Data.UserID)
+	return &GRPCUserLookup{
+		authClient:         authpb.NewAuthServiceClient(conn),
+		authConn:           conn,
+		walletUserResolver: resolver,
+	}, nil
 }
 
-func (l *authServiceLookup) getPhoneFromAuth(ctx context.Context, userID string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		fmt.Sprintf("%s/internal/users/%s", l.authServiceURL, userID),
-		nil,
-	)
+// GetPhoneByWalletID resolves a wallet ID to a user's phone number.
+// - wallet_id → user_id (via payment service HTTP — will be gRPC in Phase 4)
+// - user_id → phone_number (via auth service gRPC)
+func (l *GRPCUserLookup) GetPhoneByWalletID(ctx context.Context, walletID string) (uuid.UUID, string, error) {
+	userIDStr, err := l.walletUserResolver.GetUserIDByWalletID(ctx, walletID)
 	if err != nil {
-		return "", err
+		return uuid.Nil, "", fmt.Errorf("resolving wallet to user: %w", err)
 	}
-	req.Header.Set("X-Admin-Key", l.adminKey)
 
-	resp, err := l.httpClient.Do(req)
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	resp, err := l.authClient.GetPhoneByUserID(ctx, &authpb.GetPhoneByUserIDRequest{
+		UserId: userIDStr,
+	})
 	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	var result struct {
-		Data struct {
-			PhoneNumber string `json:"phone_number"`
-		} `json:"data"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", err
+		return uuid.Nil, "", fmt.Errorf("getting phone from auth service: %w", err)
 	}
 
-	return result.Data.PhoneNumber, nil
+	userID, err := uuid.Parse(resp.UserId)
+	if err != nil {
+		return uuid.Nil, "", fmt.Errorf("invalid user id in response: %w", err)
+	}
+
+	return userID, resp.PhoneNumber, nil
+}
+
+func (l *GRPCUserLookup) Close() error {
+	return l.authConn.Close()
 }
