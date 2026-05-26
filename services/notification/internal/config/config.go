@@ -14,7 +14,7 @@ type Config struct {
 	Port              int
 	Database          DatabaseConfig
 	Kafka             KafkaConfig
-	AuthServiceURL    string
+	AuthServiceAddr   string
 	PaymentServiceURL string
 	AdminKey          string
 	SMS               SMSConfig
@@ -60,7 +60,7 @@ func Load() (*Config, error) {
 	return &Config{
 		Environment:       getString("ENVIRONMENT", "development"),
 		Port:              port,
-		AuthServiceURL:    getString("AUTH_SERVICE_URL", "http://localhost:8081"),
+		AuthServiceAddr:   getString("AUTH_SERVICE_ADDR", "localhost:9091"),
 		PaymentServiceURL: getString("PAYMENT_SERVICE_URL", "http://localhost:8083"),
 		AdminKey:          getString("ADMIN_API_KEY", ""),
 		Database: DatabaseConfig{

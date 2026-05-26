@@ -18,7 +18,7 @@ import (
 
 	"github.com/Ad3bay0c/payflow/notification/internal/config"
 	"github.com/Ad3bay0c/payflow/notification/internal/consumer"
-	"github.com/Ad3bay0c/payflow/notification/internal/lookup"
+	notifLookup "github.com/Ad3bay0c/payflow/notification/internal/lookup"
 	"github.com/Ad3bay0c/payflow/notification/internal/processor"
 	"github.com/Ad3bay0c/payflow/notification/internal/provider"
 	"github.com/Ad3bay0c/payflow/notification/internal/repository"
@@ -64,11 +64,20 @@ func main() {
 		logger.Info("using logger SMS provider (development)")
 	}
 
-	userLookup := lookup.NewAuthServiceLookup(
-		cfg.AuthServiceURL,
+	walletResolver := notifLookup.NewHTTPWalletResolver(
 		cfg.PaymentServiceURL,
 		cfg.AdminKey,
 	)
+
+	// User lookup — gRPC to auth service
+	userLookup, err := notifLookup.NewGRPCUserLookup(
+		cfg.AuthServiceAddr,
+		walletResolver,
+	)
+	if err != nil {
+		logger.Fatal("failed to connect to auth service", zap.Error(err))
+	}
+	defer userLookup.Close()
 
 	notifRepo := repository.NewNotificationRepository(pool)
 
