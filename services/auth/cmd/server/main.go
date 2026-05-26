@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -25,11 +26,16 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/reflection"
 
 	"github.com/Ad3bay0c/payflow/auth/internal/config"
+	authgrpc "github.com/Ad3bay0c/payflow/auth/internal/grpc"
 	"github.com/Ad3bay0c/payflow/auth/internal/handler"
 	"github.com/Ad3bay0c/payflow/auth/internal/repository"
 	"github.com/Ad3bay0c/payflow/auth/internal/service"
+	authpb "github.com/Ad3bay0c/payflow/proto/gen/auth"
 )
 
 func main() {
@@ -137,12 +143,43 @@ func main() {
 		}
 	}()
 
+	grpcServer := grpc.NewServer(
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			MaxConnectionIdle: 5 * time.Minute,
+			Time:              2 * time.Minute,
+			Timeout:           20 * time.Second,
+		}),
+	)
+	authpb.RegisterAuthServiceServer(grpcServer, authgrpc.NewAuthGRPCServer(authSvc, logger))
+
+	// Enable reflection in development for tools like grpcurl detect available services
+	if cfg.Environment != "production" {
+		reflection.Register(grpcServer)
+	}
+
+	grpcListener, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.GRPCPort))
+	if err != nil {
+		logger.Fatal("failed to bind gRPC port", zap.Error(err))
+	}
+
+	go func() {
+		logger.Info("auth gRPC server listening",
+			zap.Int("port", cfg.GRPCPort),
+		)
+		if err := grpcServer.Serve(grpcListener); err != nil {
+			logger.Fatal("gRPC server error", zap.Error(err))
+		}
+	}()
+
 	// Block until we receive a shutdown signal (CTRL+C or Kubernetes SIGTERM)
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
 	logger.Info("shutting down auth service...")
+
+	// Stop gRPC gracefully — waits for in-flight RPCs to complete
+	grpcServer.GracefulStop()
 
 	// Give in-flight requests 30 seconds to complete before forcing shutdown
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -187,8 +224,8 @@ func buildRouter(
 	v1 := router.Group("/api/v1/auth")
 	authHandler.RegisterRoutes(v1)
 
-	internal := router.Group("/internal")
-	authHandler.RegisterInternalRoutes(internal)
+	//internal := router.Group("/internal")
+	//authHandler.RegisterInternalRoutes(internal)
 
 	return router
 }

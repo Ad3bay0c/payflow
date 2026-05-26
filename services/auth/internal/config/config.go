@@ -10,6 +10,7 @@ import (
 type Config struct {
 	Environment string
 	Port        int
+	GRPCPort    int
 
 	Database DatabaseConfig
 	Redis    RedisConfig
@@ -42,6 +43,11 @@ type JWTConfig struct {
 // Load reads all config from environment variables.
 func Load() (*Config, error) {
 	port, err := getInt("PORT", 8081)
+	if err != nil {
+		return nil, err
+	}
+
+	grpcPort, err := getInt("GRPC_PORT", 9091)
 	if err != nil {
 		return nil, err
 	}
@@ -80,6 +86,7 @@ func Load() (*Config, error) {
 	return &Config{
 		Environment: getString("ENVIRONMENT", "development"),
 		Port:        port,
+		GRPCPort:    grpcPort,
 		Database: DatabaseConfig{
 			Host:     getString("DB_HOST", "localhost"),
 			Port:     dbPort,
