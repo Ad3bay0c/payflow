@@ -1,68 +1,67 @@
 // internal/lookup/wallet_resolver.go
+//
+// gRPC client for resolving wallet IDs to user IDs.
+// Calls the payment service gRPC server.
 
 package lookup
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"time"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
+
+	paymentpb "github.com/Ad3bay0c/payflow/proto/gen/payment"
 )
 
-// WalletUserResolver resolves a wallet ID to a user ID.
-// Implemented by calling the payment service internal API.
-type WalletUserResolver interface {
-	GetUserIDByWalletID(ctx context.Context, walletID string) (string, error)
+// GRPCWalletResolver resolves wallet IDs to user IDs
+// via the payment service gRPC server.
+type GRPCWalletResolver struct {
+	client paymentpb.PaymentServiceClient
+	conn   *grpc.ClientConn
 }
 
-// TODO: implement GRPC client to connect to Payment service
-type HTTPWalletResolver struct {
-	paymentServiceURL string
-	adminKey          string
-	httpClient        *http.Client
-}
-
-func NewHTTPWalletResolver(paymentServiceURL, adminKey string) *HTTPWalletResolver {
-	return &HTTPWalletResolver{
-		paymentServiceURL: paymentServiceURL,
-		adminKey:          adminKey,
-		httpClient:        &http.Client{Timeout: 3 * time.Second},
-	}
-}
-
-func (r *HTTPWalletResolver) GetUserIDByWalletID(ctx context.Context, walletID string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		fmt.Sprintf("%s/internal/wallets/%s/owner", r.paymentServiceURL, walletID),
-		nil,
+func NewGRPCWalletResolver(paymentServiceAddr string) (*GRPCWalletResolver, error) {
+	conn, err := grpc.NewClient(paymentServiceAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                10 * time.Second,
+			Timeout:             5 * time.Second,
+			PermitWithoutStream: true,
+		}),
 	)
 	if err != nil {
-		return "", fmt.Errorf("creating request: %w", err)
+		return nil, fmt.Errorf("connecting to payment service: %w", err)
 	}
-	req.Header.Set("X-Admin-Key", r.adminKey)
 
-	resp, err := r.httpClient.Do(req)
+	return &GRPCWalletResolver{
+		client: paymentpb.NewPaymentServiceClient(conn),
+		conn:   conn,
+	}, nil
+}
+
+// GetUserIDByWalletID resolves a wallet ID to its owner's user ID.
+func (r *GRPCWalletResolver) GetUserIDByWalletID(ctx context.Context, walletID string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	resp, err := r.client.GetWalletOwner(ctx, &paymentpb.GetWalletOwnerRequest{
+		WalletId: walletID,
+	})
 	if err != nil {
-		return "", fmt.Errorf("calling payment service: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("payment service returned %d", resp.StatusCode)
+		return "", fmt.Errorf("getting wallet owner: %w", err)
 	}
 
-	var result struct {
-		Data struct {
-			UserID string `json:"user_id"`
-		} `json:"data"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("decoding response: %w", err)
-	}
-
-	if result.Data.UserID == "" {
+	if resp.UserId == "" {
 		return "", fmt.Errorf("empty user_id in response")
 	}
 
-	return result.Data.UserID, nil
+	return resp.UserId, nil
+}
+
+func (r *GRPCWalletResolver) Close() error {
+	return r.conn.Close()
 }

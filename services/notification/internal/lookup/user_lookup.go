@@ -16,6 +16,12 @@ import (
 	authpb "github.com/Ad3bay0c/payflow/proto/gen/auth"
 )
 
+// WalletUserResolver resolves a wallet ID to a user ID.
+// Implemented by calling the payment service internal API.
+type WalletUserResolver interface {
+	GetUserIDByWalletID(ctx context.Context, walletID string) (string, error)
+}
+
 var _ service.UserLookup = (*GRPCUserLookup)(nil)
 
 // GRPCUserLookup resolves wallet IDs to user contact details
