@@ -10,14 +10,14 @@ import (
 )
 
 type Config struct {
-	Environment       string
-	Port              int
-	Database          DatabaseConfig
-	Kafka             KafkaConfig
-	AuthServiceAddr   string
-	PaymentServiceURL string
-	AdminKey          string
-	SMS               SMSConfig
+	Environment        string
+	Port               int
+	Database           DatabaseConfig
+	Kafka              KafkaConfig
+	AuthServiceAddr    string
+	PaymentServiceAddr string
+	AdminKey           string
+	SMS                SMSConfig
 }
 
 type DatabaseConfig struct {
@@ -58,11 +58,11 @@ func Load() (*Config, error) {
 	brokers := strings.Split(getString("KAFKA_BROKERS", "127.0.0.1:9092"), ",")
 
 	return &Config{
-		Environment:       getString("ENVIRONMENT", "development"),
-		Port:              port,
-		AuthServiceAddr:   getString("AUTH_SERVICE_ADDR", "localhost:9091"),
-		PaymentServiceURL: getString("PAYMENT_SERVICE_URL", "http://localhost:8083"),
-		AdminKey:          getString("ADMIN_API_KEY", ""),
+		Environment:        getString("ENVIRONMENT", "development"),
+		Port:               port,
+		AuthServiceAddr:    getString("AUTH_SERVICE_ADDR", "localhost:9091"),
+		PaymentServiceAddr: getString("PAYMENT_SERVICE_ADDR", "localhost:9092"),
+		AdminKey:           getString("ADMIN_API_KEY", ""),
 		Database: DatabaseConfig{
 			Host:     getString("DB_HOST", "localhost"),
 			Port:     dbPort,

@@ -13,6 +13,7 @@ import (
 type Config struct {
 	Environment    string
 	Port           int
+	GRPCPort       int
 	AdminPort      int
 	AuthServiceURL string
 	Database       DatabaseConfig
@@ -47,6 +48,11 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
+	grpcPort, err := getInt("GRPC_PORT", 9092)
+	if err != nil {
+		return nil, err
+	}
+
 	adminPort, err := getInt("ADMIN_PORT", 8083)
 	if err != nil {
 		return nil, err
@@ -76,6 +82,7 @@ func Load() (*Config, error) {
 	return &Config{
 		Environment:    getString("ENVIRONMENT", "development"),
 		Port:           port,
+		GRPCPort:       grpcPort,
 		AdminPort:      adminPort,
 		AuthServiceURL: getString("AUTH_SERVICE_URL", "http://localhost:8081"),
 		Database: DatabaseConfig{

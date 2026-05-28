@@ -64,10 +64,11 @@ func main() {
 		logger.Info("using logger SMS provider (development)")
 	}
 
-	walletResolver := notifLookup.NewHTTPWalletResolver(
-		cfg.PaymentServiceURL,
-		cfg.AdminKey,
-	)
+	walletResolver, err := notifLookup.NewGRPCWalletResolver(cfg.PaymentServiceAddr)
+	if err != nil {
+		logger.Fatal("failed to connect to payment service gRPC", zap.Error(err))
+	}
+	defer walletResolver.Close()
 
 	// User lookup — gRPC to auth service
 	userLookup, err := notifLookup.NewGRPCUserLookup(

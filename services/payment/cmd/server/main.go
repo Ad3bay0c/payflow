@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -19,15 +20,20 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/segmentio/kafka-go"
 	"go.uber.org/zap"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/reflection"
 
 	authclient "github.com/Ad3bay0c/payflow/payment/internal/auth"
 	"github.com/Ad3bay0c/payflow/payment/internal/config"
 	"github.com/Ad3bay0c/payflow/payment/internal/events"
 	"github.com/Ad3bay0c/payflow/payment/internal/fraud"
+	paymentgrpc "github.com/Ad3bay0c/payflow/payment/internal/grpc"
 	"github.com/Ad3bay0c/payflow/payment/internal/handler"
 	"github.com/Ad3bay0c/payflow/payment/internal/relay"
 	"github.com/Ad3bay0c/payflow/payment/internal/repository"
 	"github.com/Ad3bay0c/payflow/payment/internal/service"
+	paymentpb "github.com/Ad3bay0c/payflow/proto/gen/payment"
 )
 
 func main() {
@@ -111,6 +117,7 @@ func main() {
 
 	adminRouter := buildAdminRouter(cfg, adminHandler)
 
+	// ADMIN SERVER
 	adminSrv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.AdminPort),
 		Handler:      adminRouter,
@@ -139,7 +146,7 @@ func main() {
 		}
 	}()
 
-	// Start server with graceful shutdown
+	// ACTUAL HTTP SERVER
 	srv := &http.Server{
 		Addr:         cfg.Addr(),
 		Handler:      router,
@@ -155,6 +162,38 @@ func main() {
 		}
 	}()
 
+	// GRPC SERVER
+	grpcServer := grpc.NewServer(
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			MaxConnectionIdle: 5 * time.Minute,
+			Time:              2 * time.Minute,
+			Timeout:           20 * time.Second,
+		}),
+	)
+
+	paymentpb.RegisterPaymentServiceServer(
+		grpcServer,
+		paymentgrpc.NewPaymentGRPCServer(paymentSvc, logger),
+	)
+
+	if cfg.Environment != "production" {
+		reflection.Register(grpcServer)
+	}
+
+	grpcListener, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.GRPCPort))
+	if err != nil {
+		logger.Fatal("failed to bind gRPC port", zap.Error(err))
+	}
+
+	go func() {
+		logger.Info("payment gRPC server listening",
+			zap.Int("port", cfg.GRPCPort),
+		)
+		if err := grpcServer.Serve(grpcListener); err != nil {
+			logger.Fatal("payment gRPC server error", zap.Error(err))
+		}
+	}()
+
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
@@ -164,9 +203,18 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	// SERVER GRACEFUL SHUTDOWN
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.Fatal("forced shutdown", zap.Error(err))
 	}
+
+	// ADMIN SERVER SHUTDOWN
+	if err := adminSrv.Shutdown(shutdownCtx); err != nil {
+		logger.Fatal("forced shutdown", zap.Error(err))
+	}
+
+	// GRPC SERVER GRACEFUL SHUTDOWN
+	grpcServer.GracefulStop()
 
 	logger.Info("payment service stopped")
 }
