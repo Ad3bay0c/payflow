@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package payment;
+
+option go_package = "github.com/Ad3bay0c/payflow/proto/gen/payment";
+
+// PaymentService provides internal wallet operations for other services.
+service PaymentService {
+  // GetWalletOwner returns the user ID that owns a given wallet.
+  // Called by the notification service to resolve wallet_id → user_id.
+  rpc GetWalletOwner(GetWalletOwnerRequest) returns (GetWalletOwnerResponse);
+}
+
+message GetWalletOwnerRequest {
+  string wallet_id = 1;
+}
+
+message GetWalletOwnerResponse {
+  string wallet_id = 1;
+  string user_id   = 2;
+}
